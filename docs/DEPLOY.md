@@ -2,7 +2,20 @@
 
 Two Supabase projects (`gentrep-sites-dev` now, production at launch), one Vercel project with two services from `vercel.json` (web + api container, one domain), Resend for email. Steps marked **Owner** need your accounts. Claude does the rest.
 
-Environments (playbook: 06 - Deploy): local (Docker Supabase, fake data) -> dev project (staging site at `*.staging.gentrep.xyz`) -> production (`*.gentrep.xyz`, after launch checks). Nothing is shared between them: own keys, own database.
+Environments (playbook: 06 - Deploy): local (Docker Supabase, fake data) -> dev project (staging site at `*.staging.gentrep.xyz`) -> production (`*.gentrep.xyz`, after launch checks). Nothing is shared between them: own keys, own database. Staging stays after launch: it is where every change is checked before it reaches production.
+
+| | Staging | Production |
+|---|---|---|
+| Addresses | `staging.gentrep.xyz`, `*.staging.gentrep.xyz` | `gentrep.xyz`, `*.gentrep.xyz` |
+| Git branch | `sandbox` | `main` |
+| Vercel environment | Preview, variables scoped to branch `sandbox` | Production |
+| Supabase project | dev (fake data) | production (real data) |
+| `APP_ENV` | `staging` | `production` |
+| `LINK_SECRET`, keys, Resend key | its own | its own, never the staging value |
+
+Flow: feature branch -> PR into `sandbox` -> check on staging -> PR `sandbox` into `main`. **Claude never touches the production Supabase project: no migration, no test run, no test data.** The owner applies migrations there by hand, schema first, code second. The Supabase CLI in this repo is linked to the DEV project: a plain `supabase db push` hits dev, so for production the owner runs `supabase db push --db-url "<production url>"` from their own terminal. Never `db reset --linked`, never `config push` (`config.toml` has `site_url = localhost`).
+
+Staging serves `Disallow: /` in `robots.txt` (see `robotsText` in `apps/web/lib/host.ts`), keyed on `NEXT_PUBLIC_ROOT_DOMAIN` starting with `staging.`.
 
 ## 1. Dev Supabase project (Owner creates, Claude applies)
 
@@ -42,7 +55,7 @@ Environments (playbook: 06 - Deploy): local (Docker Supabase, fake data) -> dev 
 | `PORT` | `4000` | api |
 
 Do **not** set `API_ORIGIN` on Vercel (local only). `NEXT_PUBLIC_*` is baked into the build: redeploy after changing one.
-4. Branches: `sandbox` -> the staging site, `main` -> production. Preview builds use dev variables, never production's.
+4. Branches: `sandbox` -> the staging site, `main` -> production. In Vercel the staging variables live in the **Preview** environment scoped to branch `sandbox`; the Production environment holds production values only. Set the staging domains to the git branch `sandbox`. Do the split (create `sandbox`, copy variables to Preview, move the staging domains, check staging) **before** putting any production value in the Production environment. Other preview builds use dev variables, never production's. Protect `main` on GitHub: pull request and passing CI required, no force-push.
 5. After deploy: `https://<root>/api/health` answers `{"ok":true}`; a call with no token gets 401; `curl -I` shows the CSP and `X-Frame-Options`.
 
 ## 4. First super admin (Owner runs it)
@@ -56,6 +69,17 @@ Do **not** set `API_ORIGIN` on Vercel (local only). `NEXT_PUBLIC_*` is baked int
 - Terms and privacy notice reviewed; `NEXT_PUBLIC_LEGAL_DRAFT=false`; no `[bracket]` left on those pages.
 - Restore a backup once and record the time (playbook: 07 - Incident Response). Fill in the incident page (DPO contact, NPC reporting link).
 - Production Supabase project created (paid plan: leaked-password protection, inactivity timeout, backups), its own keys, migrations applied by the owner. Never from an agent.
+
+## Release to production
+
+Owner, with someone watching, not before a weekend.
+
+1. PR `sandbox` into `main`, CI green.
+2. Apply the new migration files to the production project by hand (first release: all of them, in order). Schema first.
+3. Merge: Vercel deploys `main` with the Production variables.
+4. First time only: create the first super admin with the production keys (section 4) and enrol a second one.
+5. Read-only checks, no test rows: `/api/health`, a request with no token gets 401, CSP and `X-Frame-Options` present, landing and sign-up load, watch logs for ten minutes. Registration and sign-up flows are proven on staging with the same commit.
+6. One dated line in the change log: what shipped, which migration.
 
 ## Rollback
 

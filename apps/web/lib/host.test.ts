@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseHost } from "./host";
+import { parseHost, robotsText } from "./host";
 
 describe("parseHost", () => {
   const root = "gentrep.xyz";
@@ -30,5 +30,14 @@ describe("parseHost", () => {
   });
   test("the host's own preview address serves the platform site", () => {
     expect(parseHost("gentrep-sites-abc.vercel.app", root)).toEqual({ kind: "root" });
+  });
+});
+
+describe("robotsText", () => {
+  test("staging blocks everything and lists no sitemap", () => {
+    expect(robotsText("staging.gentrep.xyz", ["/admin"], "https://x/sitemap.xml")).toBe("User-agent: *\nDisallow: /\n");
+  });
+  test("production keeps the usual rules", () => {
+    expect(robotsText("gentrep.xyz", ["/admin", "/auth"], "https://gentrep.xyz/sitemap.xml")).toBe("User-agent: *\nDisallow: /admin\nDisallow: /auth\nSitemap: https://gentrep.xyz/sitemap.xml\n");
   });
 });

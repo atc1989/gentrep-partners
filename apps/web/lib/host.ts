@@ -19,3 +19,7 @@ export function parseHost(rawHost: string, root: string): HostKind {
   }
   return { kind: "root" };
 }
+
+/** robots.txt body. A staging root (staging.<domain>) is never indexed; everything else lists only what to keep out. */
+export const robotsText = (root: string, disallow: string[], sitemap: string) =>
+  root.toLowerCase().startsWith("staging.") ? "User-agent: *\nDisallow: /\n" : `User-agent: *\n${disallow.map((d) => `Disallow: ${d}\n`).join("")}Sitemap: ${sitemap}\n`;
