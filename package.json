@@ -1,0 +1,20 @@
+{
+  "name": "gentrep-sites",
+  "private": true,
+  "packageManager": "bun@1.4.4",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "bun run --parallel --filter '@gs/*' dev",
+    "typecheck": "bun run --filter '@gs/api' typecheck && bun run --filter '@gs/web' typecheck",
+    "test": "bun run test:db && bun test apps/api/src apps/web/lib apps/web/components",
+    "test:db": "bun test supabase/tests/db.test.ts",
+    "test:e2e": "bun supabase/tests/e2e.ts",
+    "build": "bun run --filter '@gs/web' build"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.6.0",
+    "typescript": "^7.0.2"
+  }
+}

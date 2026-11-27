@@ -1,0 +1,21 @@
+# Gentrep API (Elysia on Bun). Lives at the repo root because Vercel builds a container from the Dockerfile's own
+# folder and the image needs the workspace lockfile next to it:
+#   docker build -f Dockerfile.api -t gentrep-api .
+# Configuration comes only from the host's environment (docs/DEPLOY.md); no .env is copied in.
+FROM oven/bun:1.4.4 AS base
+WORKDIR /app
+
+COPY package.json bun.lock ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+RUN bun install --frozen-lockfile --production --filter @gs/api
+
+COPY apps/api/src apps/api/src
+COPY apps/api/tsconfig.json apps/api/tsconfig.json
+
+ENV NODE_ENV=production PORT=4000
+USER bun
+EXPOSE 4000
+WORKDIR /app/apps/api
+HEALTHCHECK --interval=30s --timeout=3s CMD bun -e "fetch('http://localhost:' + (process.env.PORT ?? 4000) + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+CMD ["bun", "src/index.ts"]
