@@ -70,6 +70,44 @@ Do **not** set `API_ORIGIN` on Vercel (local only). `NEXT_PUBLIC_*` is baked int
 - Restore a backup once and record the time (playbook: 07 - Incident Response). Fill in the incident page (DPO contact, NPC reporting link).
 - Production Supabase project created (paid plan: leaked-password protection, inactivity timeout, backups), its own keys, migrations applied by the owner. Never from an agent.
 
+## Production variables (fill-in block)
+
+Vercel -> Settings -> Environment Variables, **Production only** (untick Preview and Development). Replace every `<...>`. Real values stay in the password manager: never in chat, this file or the repo. Do this only after staging runs from `sandbox` (section 3, step 4).
+
+```
+# web (baked into the build: redeploy after changing)
+NEXT_PUBLIC_SUPABASE_URL=https://<production-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<sb_publishable_... of the PRODUCTION project>
+NEXT_PUBLIC_API_URL=/api
+NEXT_PUBLIC_ROOT_DOMAIN=gentrep.xyz
+NEXT_PUBLIC_LEGAL_DRAFT=true            # false only after the terms and privacy notice are reviewed
+NEXT_PUBLIC_OPERATOR_NAME=<legal entity name>
+NEXT_PUBLIC_OPERATOR_ADDRESS=<legal entity address>
+NEXT_PUBLIC_DPO_EMAIL=<data protection contact>
+
+# api (mark the secrets Sensitive)
+APP_ENV=production
+SUPABASE_URL=https://<production-ref>.supabase.co
+SUPABASE_PUBLISHABLE_KEY=<same publishable key>
+SUPABASE_SECRET_KEY=<sb_secret_... of the PRODUCTION project>   # Sensitive
+ROOT_DOMAIN=gentrep.xyz
+EMAIL_MODE=resend
+RESEND_API_KEY=<production Resend key>                          # Sensitive
+EMAIL_FROM=Gentrep <no-reply@mail.gentrep.xyz>
+LINK_SECRET=<new 32+ character value, see below>                # Sensitive, never the staging value
+PORT=4000
+```
+
+Not set on Vercel: `API_ORIGIN`. Not shared with staging: any key, `LINK_SECRET` or the Resend key.
+
+Make `LINK_SECRET` on your own machine (PowerShell), copy it straight into Vercel and the password manager, and do not paste it anywhere else:
+
+```powershell
+bun -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64'))"
+```
+
+Set it once. Changing it later breaks every invite link already emailed.
+
 ## Release to production
 
 Owner, with someone watching, not before a weekend.
@@ -80,6 +118,29 @@ Owner, with someone watching, not before a weekend.
 4. First time only: create the first super admin with the production keys (section 4) and enrol a second one.
 5. Read-only checks, no test rows: `/api/health`, a request with no token gets 401, CSP and `X-Frame-Options` present, landing and sign-up load, watch logs for ten minutes. Registration and sign-up flows are proven on staging with the same commit.
 6. One dated line in the change log: what shipped, which migration.
+
+## Launch checklist (after the deploy, production is read-only)
+
+No test rows and no sign-ups on production. Registration, the emailed link and the invite scan are proven on staging with the same commit; production only gets the reads below. Replace `<slug>` with a real, active tenant once one exists. PowerShell; use `curl.exe`, not `curl`.
+
+Before the deploy
+- [ ] Both migrations are on the production project (`supabase migration list --db-url "<production url>"` shows local and remote equal), applied by you.
+- [ ] Staging (from `sandbox`, same commit) passed: register, emailed link opens `/my-qr`, `/j/<code>` shows "Ref number #...", the admin shows Code and Invited by.
+- [ ] Production variables set (block above), `LINK_SECRET` differs from staging's, nothing `NEXT_PUBLIC_` holds a secret.
+- [ ] Resend sending domain verified (SPF, DKIM pass); DNS on Vercel; `gentrep.xyz` and `*.gentrep.xyz` show a valid certificate.
+
+After the deploy
+- [ ] Health: `curl.exe -s https://gentrep.xyz/api/health` prints `{"ok":true}`.
+- [ ] No token: `curl.exe -s -o NUL -w "%{http_code}" https://gentrep.xyz/api/me` prints `401`.
+- [ ] Headers: `curl.exe -sI https://gentrep.xyz` shows `Content-Security-Policy` and `X-Frame-Options`.
+- [ ] Robots: `curl.exe -s https://gentrep.xyz/robots.txt` does **not** say `Disallow: /` (that is staging only).
+- [ ] Member card route answers a bad token with 404 and writes nothing: `curl.exe -s -X POST https://gentrep.xyz/api/public/sites/<slug>/card -H "content-type: application/json" -d '{\"token\":\"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"}'` prints `{"error":"This link is not valid."}`.
+- [ ] Invite scan: `curl.exe -sI https://<slug>.gentrep.xyz/j/100000` shows `307` and `location: /registration`. On an active tenant it also sets `gs_ref` (HttpOnly, SameSite=Lax, Secure, no `Domain`).
+- [ ] `https://<slug>.gentrep.xyz/my-qr` with no `#k=` shows "This link does not work", and `/robots.txt` on the tenant lists `Disallow: /my-qr`.
+- [ ] Landing and tenant sign-up pages load; the privacy notice mentions the `gs_ref` cookie.
+- [ ] First super admin created with the production keys and a second enrolled (section 4); sign-in asks for the second factor.
+- [ ] Watch the Vercel and Supabase logs for ten minutes: no 5xx, no token or request body in a log line.
+- [ ] One dated line in the change log: what shipped, which migrations.
 
 ## Rollback
 
