@@ -13,7 +13,7 @@ export default async function PrivacyPage({ params }: { params: Promise<{ slug: 
     <>
       {LEGAL_DRAFT && <p className="sk-draft" role="note">Draft notice, not yet reviewed. It will change before launch.</p>}
       <PageFrame site={{ name: site.name, slug: site.slug, settings: site.settings }}>
-        <div style={{ marginTop: 32 }}><TenantPrivacyDoc name={site.name} contactEmail={site.settings.contact_email} /></div>
+        <div style={{ marginTop: 32 }}><TenantPrivacyDoc name={site.name} contactEmail={site.settings.contact_email} reg={site.settings} /></div>
       </PageFrame>
     </>
   );

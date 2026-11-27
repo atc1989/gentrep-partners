@@ -1,6 +1,6 @@
 // Pure helpers used by both the API and the web app. No env, no I/O, no framework imports.
 
-export const NOTICE_VERSION = "2026-11-26-draft";
+export const NOTICE_VERSION = "2026-11-26b-draft"; // bumped: the form now asks for more, and the notice says why
 export const PASSWORD_MIN = 15; // playbook: 02 - Auth and Roles (password is the only proof for tenant admins)
 export const PASSWORD_MAX = 200;
 
@@ -29,6 +29,12 @@ export function slugify(name: string): string {
 
 export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const isEmail = (s: string) => s.length <= 254 && EMAIL_RE.test(s);
+
+/** The titles the registration form offers. The same list is a table check in the database. */
+export const NAME_PREFIXES = ["Mr.", "Ms.", "Mrs.", "Mx.", "Dr.", "Dra.", "Prof.", "Atty."] as const;
+
+/** An invite code is 6 digits, never starting with 0. It is printed in the invite link and the QR. */
+export const INVITE_CODE_RE = /^[1-9][0-9]{5}$/;
 
 /** 09171234567, +639171234567, 639171234567 and spaced or dashed versions -> +639171234567. Null if not a PH mobile. */
 export function normalizeMobile(input: string): string | null {
@@ -78,6 +84,11 @@ export type SiteSettings = {
   show_join: boolean;
   show_faq: boolean;
   show_contact: boolean;
+  // The registration form. An empty category list switches the category field off.
+  reg_category_label: string;
+  reg_categories: string[];
+  reg_show_address: boolean;
+  reg_show_source: boolean;
 };
 
 export type PublicSite = { status: "active"; slug: string; name: string; settings: SiteSettings } | { status: "suspended" };
@@ -89,6 +100,11 @@ export const SITE_LIMITS = {
   footer_blurb: 300,
   seo_title: 70,
   seo_description: 160,
+  reg_category_label: 40,
+  reg_categories: 20, // options in the list
+  reg_category: 60, // characters in one option
+  address: 200,
+  source: 120,
 } as const;
 
 // ---- colour: one brand colour per tenant, made readable --------------------------------------
@@ -161,7 +177,24 @@ export type Me = {
   pending: { slug: string; name: string; admin_name: string } | null;
 };
 export type AdminSite = { tenant: TenantBrief; settings: SiteSettings };
-export type Registration = { id: string; full_name: string; email: string; mobile: string; city: string; member_type: string; created_at: string };
+export type Registration = {
+  id: string;
+  name_prefix: string | null;
+  full_name: string;
+  email: string;
+  mobile: string;
+  city: string;
+  category: string | null;
+  address: string | null;
+  source: string | null;
+  member_type: string;
+  member_code: number;
+  created_at: string;
+  referred_by_code: number | null;
+  referred_by_name: string | null;
+};
+/** What a person sees on their own invite page: their code and how many people joined with it. Nothing else. */
+export type MemberCard = { member_code: number; invited: number };
 export type TenantRow = TenantBrief & { created_at: string; admin_email: string | null; registrations: number };
 export type TenantDetail = TenantBrief & {
   created_at: string;

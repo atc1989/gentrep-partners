@@ -23,7 +23,7 @@ docs/        PLAN, THREAT_MODEL, DEPLOY
 
 **The database is the wall.** Tenant comes from `app.my_tenant()` (membership table), never from the request. Every table has RLS and a `tenant_id`; clients have SELECT only; every write is a SQL function that checks its caller (`app.require_tenant()`, `app.require_platform()`). The API and the web checks are early, friendly errors. RLS and the functions are the enforcement: add a policy or a function, never use the service role for data.
 
-Roles: **super admin** (`app.platform_admins`, counts only at aal2 = second factor), **tenant admin** (one per tenant, one tenant per user), **registrant** (a row, no login). Platform staff see registrations only through `platform_grant_support` (reason, 1 hour, logged, shown to the tenant).
+Roles: **super admin** (`app.platform_admins`, counts only at aal2 = second factor), **tenant admin** (one per tenant, one tenant per user), **registrant** (a row, no login; a private emailed link opens their own invite QR page). Platform staff see registrations only through `platform_grant_support` (reason, 1 hour, logged, shown to the tenant).
 
 ## Commands
 
@@ -51,5 +51,6 @@ Vercel services (`vercel.json`): `web` (Next) and `api` (container from `Dockerf
 - Public look = Sky (`styles/sky.css`, tenant colour via `deriveTheme`), admin look = CRM (`styles/crm.css`). Colour only from tokens. Light only on public pages; admin follows the OS.
 - Times shown in company time (UTC+8). PH mobile stored as `+639XXXXXXXXX`. Passwords 15+ characters (`PASSWORD_MIN`).
 - Elysia runs with `normalize: false`: unknown body fields are rejected (422), not dropped.
-- Public routes are exactly: site lookup, slug check, tenant sign-up, registration, password-reset request. Adding one needs a threat-model row.
+- Public routes are exactly: site lookup, slug check, tenant sign-up, registration, member card (private invite link), password-reset request. Adding one needs a threat-model row. anon may execute exactly four SQL functions (`get_site`, `slug_status`, `register_member`, `get_member_card`).
+- Invite QR: every registration gets a random 6-digit code. `slug.domain/j/<code>` sets the host-only cookie `gs_ref` (30 days) and opens the form, so a new person is recorded as invited by that code. A person opens their own QR page, with no login, through the private link in the email (`/my-qr#k=<token>`; the token is HMAC(`LINK_SECRET`, email), the table keeps only its sha256). The thank-you screen never shows a code, so a repeat registration looks identical to a new one. The tenant's form settings (category list, address, where found) live in `site_settings.reg_*`.
 - This is NOT the Next.js you know: read the relevant guide in `apps/web/node_modules/next/dist/docs/` before writing Next code (params are Promises, `proxy.ts` replaces middleware).

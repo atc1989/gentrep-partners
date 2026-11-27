@@ -1,4 +1,4 @@
-import { NOTICE_VERSION } from "@gs/api/shared";
+import { NOTICE_VERSION, type SiteSettings } from "@gs/api/shared";
 import { OPERATOR } from "@/lib/operator";
 
 // DRAFT legal text, written from the playbook templates (05 - Legal/07) and what the system really does today.
@@ -116,8 +116,14 @@ export function PlatformPrivacyDoc() {
 }
 
 /** The notice a registrant sees. The business is the controller; Gentrep runs the service for it. */
-export function TenantPrivacyDoc({ name, contactEmail }: { name: string; contactEmail: string | null }) {
+export function TenantPrivacyDoc({ name, contactEmail, reg }: { name: string; contactEmail: string | null; reg?: Pick<SiteSettings, "reg_category_label" | "reg_categories" | "reg_show_address" | "reg_show_source"> }) {
   const contact = contactEmail ?? "the contact details on this site";
+  // The extra form fields only exist when the business turned them on, so the notice lists only those.
+  const extras = [
+    reg && reg.reg_categories.length > 0 ? `your choice of ${(reg.reg_category_label || "category").toLowerCase()}` : "",
+    reg?.reg_show_address ? "address" : "",
+    reg?.reg_show_source ? "where you found us" : "",
+  ].filter(Boolean);
   return (
     <article className="sk-prose">
       <h1 className="sk-h2">Privacy notice</h1>
@@ -127,7 +133,10 @@ export function TenantPrivacyDoc({ name, contactEmail }: { name: string; contact
       <p>Contact {name}: {contact}.</p>
       <h2>What we collect</h2>
       <Table head={["Data", "Why"]} rows={[
-        ["Full name, email address, mobile number, city", "To register you with " + name],
+        ["Full name, email address, mobile number, city, and a title if you choose one", "To register you with " + name],
+        ...(extras.length ? [[extras.join(", "), "Details " + name + " asks for on the registration form"]] : []),
+        ["An invite code of your own, and the code of the person who invited you, if you came through their invite link", "To count who invited whom, and to show each person how many joined with their code"],
+        ["A private link to your invite QR page. We keep only a one-way hash of it", "So only you can open your page"],
         ["The time you registered and which version of this notice you saw", "To show your consent"],
         ["IP address and browser, kept in server logs", "To keep the service secure"],
       ]} />
@@ -136,7 +145,7 @@ export function TenantPrivacyDoc({ name, contactEmail }: { name: string; contact
       <p>To manage your registration with {name}. The basis is your consent, which you give by ticking the box on the registration page. You can withdraw it at any time by asking {name} to remove your details.</p>
       <p>We do not sell your data. We do not use it for a new purpose without telling you first.</p>
       <h2>Who receives it</h2>
-      <p>{name} and the people who work for it. The service providers that store it for us: Supabase (database), Vercel (hosting). They act on our instructions, and some are outside the Philippines. {name} remains responsible for your data wherever it is processed.</p>
+      <p>{name} and the people who work for it. The service providers that store it or send it for us: Supabase (database), Vercel (hosting), Resend (the email with your private link). They act on our instructions, and some are outside the Philippines. {name} remains responsible for your data wherever it is processed.</p>
       <h2>How long it is kept</h2>
       <p>Until you ask {name} to remove it, or {name} deletes it. [{name} sets a retention period.]</p>
       <h2>How it is protected</h2>
@@ -146,7 +155,7 @@ export function TenantPrivacyDoc({ name, contactEmail }: { name: string; contact
       <ul>{RIGHTS.map((r) => <li key={r}>{r}</li>)}</ul>
       <p>To use a right, contact {name} at {contact}.</p>
       <h2>Cookies</h2>
-      <p>This site sets no cookies.</p>
+      <p>This site sets one cookie, and only if you open someone&apos;s invite link or scan their invite QR. It is called gs_ref, it holds that person&apos;s six-digit invite code, it lasts 30 days, and it belongs to this site only. It is needed only to credit the person who invited you when you register. It is not used for tracking or advertising. Registering does not require it.</p>
       <h2>Children</h2>
       <p>This site is not for people under 18.</p>
     </article>

@@ -44,9 +44,12 @@ async function mkTenant(slug = uniq("t")) {
   return { slug, user, id: t.id as string, claims: { sub: user } as Claims };
 }
 
-async function register(slug: string, email = `${uniq("p")}@example.test`, mobile = "+639171234567") {
-  return rpc(null, "register_member", [slug, "Maria Santos", email, mobile, "Davao City", "v1"], "anon");
+async function register(slug: string, email = `${uniq("p")}@example.test`, mobile = "+639171234567", extra: Record<string, unknown> = {}) {
+  return rpc(null, "register_member", [slug, { full_name: "Maria Santos", email, mobile, city: "Davao City", ...extra }, "v1"], "anon");
 }
+const hashOf = (n: number) => n.toString(16).padStart(64, "0");
+const codeOf = async (tenant: string, email: string) =>
+  (await root(`select id, member_code from public.registrations where tenant_id = $1 and email = $2`, [tenant, email]))[0] as { id: string; member_code: number };
 
 async function mkPlatform() {
   const user = await mkUser();
@@ -70,11 +73,11 @@ describe("structure", () => {
     expect(rows.map((r) => r.table_name)).toEqual(["reserved_slugs", "tenants"]);
   });
 
-  test("anon can execute exactly three functions", async () => {
+  test("anon can execute exactly four functions", async () => {
     const rows = await root(`
       select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname in ('public', 'app') and has_function_privilege('anon', p.oid, 'execute') order by 1`);
-    expect(rows.map((r) => r.proname)).toEqual(["get_site", "register_member", "slug_status"]);
+    expect(rows.map((r) => r.proname)).toEqual(["get_member_card", "get_site", "register_member", "slug_status"]);
   });
 
   test("signed-in users cannot execute internal helpers", async () => {
@@ -214,7 +217,9 @@ describe("public pages (anon)", () => {
     const t = await mkTenant();
     expect((await register(t.slug, "not-an-email")).code).toBe("23514");
     expect((await register(t.slug, `${uniq("x")}@example.test`, "0917")).code).toBe("23514");
-    expect((await rpc(null, "register_member", [t.slug, "X", `${uniq("x")}@example.test`, "+639171234567", "Cebu", "v1"], "anon")).code).toBe("23514");
+    expect((await register(t.slug, `${uniq("x")}@example.test`, undefined, { full_name: "X" })).code).toBe("23514");
+    expect((await register(t.slug, `${uniq("x")}@example.test`, undefined, { name_prefix: "Lord" })).code).toBe("23514");
+    expect((await register(t.slug, `${uniq("x")}@example.test`, undefined, { link_hash: "not-a-hash" })).code).toBe("23514");
   });
 
   test("an unknown site, and a suspended one, refuse registrations", async () => {
@@ -493,5 +498,159 @@ describe("platform admin (super admin)", () => {
       }
       expect(failed).toBe(true);
     }
+  });
+});
+
+describe("registration fields, member codes, invites and the member card", () => {
+  test("every person gets a random 6-digit code, unique inside their tenant", async () => {
+    const t = await mkTenant();
+    for (let i = 0; i < 30; i++) await register(t.slug, `code${i}@example.test`);
+    const codes = (await root(`select member_code from public.registrations where tenant_id = $1`, [t.id])).map((r) => r.member_code as number);
+    expect(new Set(codes).size).toBe(30);
+    expect(codes.every((c) => c >= 100000 && c <= 999999)).toBe(true);
+    // not a counter: 30 sign-ups in a row are not 30 numbers in a row
+    expect(Math.max(...codes) - Math.min(...codes)).toBeGreaterThan(60);
+  });
+
+  test("an invite code credits the inviter, only inside the same tenant; an unknown code is ignored", async () => {
+    const a = await mkTenant();
+    const b = await mkTenant();
+    await register(a.slug, "host@example.test");
+    await register(b.slug, "stranger@example.test");
+    const host = await codeOf(a.id, "host@example.test");
+    const stranger = await codeOf(b.id, "stranger@example.test");
+
+    await register(a.slug, "guest@example.test", undefined, { ref_code: host.member_code });
+    expect((await root(`select referred_by from public.registrations where tenant_id = $1 and email = 'guest@example.test'`, [a.id]))[0].referred_by).toBe(host.id);
+
+    // a code that exists only in tenant B means nothing in tenant A
+    await root(`update public.registrations set member_code = 654321 where id = $1`, [stranger.id]);
+    await register(a.slug, "cross@example.test", undefined, { ref_code: 654321 });
+    expect((await root(`select referred_by from public.registrations where tenant_id = $1 and email = 'cross@example.test'`, [a.id]))[0].referred_by).toBeNull();
+
+    expect((await register(a.slug, "nocode@example.test", undefined, { ref_code: 5 })).code).toBeUndefined();
+    expect((await root(`select referred_by from public.registrations where tenant_id = $1 and email = 'nocode@example.test'`, [a.id]))[0].referred_by).toBeNull();
+  });
+
+  test("deleting the inviter keeps the people they invited", async () => {
+    const t = await mkTenant();
+    await register(t.slug, "gone@example.test");
+    const host = await codeOf(t.id, "gone@example.test");
+    await register(t.slug, "kept@example.test", undefined, { ref_code: host.member_code });
+    expect((await rpc(t.claims, "delete_registration", [host.id])).code).toBeUndefined();
+    const rows = await root(`select email, referred_by from public.registrations where tenant_id = $1`, [t.id]);
+    expect(rows).toEqual([{ email: "kept@example.test", referred_by: null }]);
+  });
+
+  test("category, address and source follow the tenant's form settings", async () => {
+    const t = await mkTenant();
+    // default: all three are off, so nothing sent for them is stored
+    await register(t.slug, "off@example.test", undefined, { category: "Surgery", address: "1 Road", source: "Friend", name_prefix: "Dr." });
+    expect(await root(`select category, address, source, name_prefix from public.registrations where tenant_id = $1`, [t.id])).toEqual([
+      { category: null, address: null, source: null, name_prefix: "Dr." },
+    ]);
+
+    const saved = await rpc(t.claims, "save_site", [null, { reg_category_label: "Specialty", reg_categories: ["Cardiology", " Surgery "], reg_show_address: true, reg_show_source: true }]);
+    expect(saved.code).toBeUndefined();
+    const site = (await rpc(null, "get_site", [t.slug], "anon")).rows[0].v.settings;
+    expect(site).toMatchObject({ reg_category_label: "Specialty", reg_categories: ["Cardiology", "Surgery"], reg_show_address: true, reg_show_source: true });
+
+    expect((await register(t.slug, "nocat@example.test", undefined, { address: "1 Road" })).message).toContain("Choose one");
+    expect((await register(t.slug, "badcat@example.test", undefined, { category: "Dentistry", address: "1 Road" })).message).toContain("Choose one");
+    expect((await register(t.slug, "noaddr@example.test", undefined, { category: "Surgery" })).message).toContain("address");
+    expect((await register(t.slug, "on@example.test", undefined, { category: "Surgery", address: " 1 Road ", source: " Facebook " })).code).toBeUndefined();
+    expect(await root(`select category, address, source from public.registrations where tenant_id = $1 and email = 'on@example.test'`, [t.id])).toEqual([
+      { category: "Surgery", address: "1 Road", source: "Facebook" },
+    ]);
+  });
+
+  test("saving the form settings refuses a bad list; leaving the keys out keeps what is there", async () => {
+    const t = await mkTenant();
+    const save = (s: Record<string, unknown>) => rpc(t.claims, "save_site", [null, s]);
+    expect((await save({ reg_categories: Array.from({ length: 21 }, (_, i) => `Option ${i}`) })).message).toContain("up to 20");
+    expect((await save({ reg_categories: ["A", "a"] })).message).toContain("twice");
+    expect((await save({ reg_categories: ["x".repeat(61)] })).message).toContain("60");
+    expect((await save({ reg_categories: "Cardiology" })).message).toContain("list");
+    expect((await save({ reg_category_label: "x".repeat(41) })).code).toBe("23514");
+    expect((await save({ reg_categories: ["Cardiology"], reg_show_address: true })).code).toBeUndefined();
+    expect((await save({ brand_color: "#112233" })).code).toBeUndefined();
+    const [s] = await root(`select reg_categories, reg_show_address, reg_category_label from public.site_settings where tenant_id = $1`, [t.id]);
+    expect(s).toEqual({ reg_categories: ["Cardiology"], reg_show_address: true, reg_category_label: "Category" });
+  });
+
+  test("the member card: right tenant and hash gives the code and invite count; everything else gives nothing", async () => {
+    const a = await mkTenant();
+    const b = await mkTenant();
+    const h = hashOf(12345);
+    await register(a.slug, "card@example.test", undefined, { link_hash: h });
+    const me = await codeOf(a.id, "card@example.test");
+    await register(a.slug, "i1@example.test", undefined, { ref_code: me.member_code });
+    await register(a.slug, "i2@example.test", undefined, { ref_code: me.member_code });
+
+    const card = (await rpc(null, "get_member_card", [a.slug, h], "anon")).rows[0].v;
+    expect(card).toEqual({ member_code: me.member_code, invited: 2 });
+    expect(JSON.stringify(card)).not.toContain("card@example.test");
+    expect((await rpc(null, "get_member_card", [b.slug, h], "anon")).rows[0].v).toBeNull();
+    expect((await rpc(null, "get_member_card", [a.slug, hashOf(99)], "anon")).rows[0].v).toBeNull();
+    expect((await rpc(null, "get_member_card", [a.slug, "nope"], "anon")).rows[0].v).toBeNull();
+    expect((await rpc(null, "get_member_card", ["no-such-site", h], "anon")).rows[0].v).toBeNull();
+
+    await root(`update public.tenants set status = 'suspended' where id = $1`, [a.id]);
+    expect((await rpc(null, "get_member_card", [a.slug, h], "anon")).rows[0].v).toBeNull();
+  });
+
+  test("a repeat registration keeps its first link and only fills a missing one, with the same answer", async () => {
+    const t = await mkTenant();
+    const email = "again@example.test";
+    expect((await register(t.slug, email)).code).toBeUndefined();
+    expect((await root(`select link_hash from public.registrations where tenant_id = $1`, [t.id]))[0].link_hash).toBeNull();
+    expect((await register(t.slug, email, undefined, { link_hash: hashOf(1) })).code).toBeUndefined();
+    expect((await register(t.slug, email, undefined, { link_hash: hashOf(2) })).code).toBeUndefined();
+    expect(await root(`select link_hash from public.registrations where tenant_id = $1`, [t.id])).toEqual([{ link_hash: hashOf(1) }]);
+  });
+
+  test("the link hash is not readable by a signed-in user, and is not in the list, the export or the log", async () => {
+    const t = await mkTenant();
+    await register(t.slug, "secret@example.test", undefined, { link_hash: hashOf(7) });
+    expect((await run("authenticated", t.claims, `select link_hash from public.registrations`)).code).toBe("42501");
+    expect((await run("authenticated", t.claims, `select member_code, category, address, source, name_prefix, referred_by from public.registrations`)).code).toBeUndefined();
+    const listed = (await rpc(t.claims, "list_registrations")).rows[0].v;
+    const exported = (await rpc(t.claims, "export_registrations")).rows[0].v;
+    const log = await root(`select detail from public.audit_log where tenant_id = $1`, [t.id]);
+    for (const out of [listed, exported, log]) expect(JSON.stringify(out)).not.toContain(hashOf(7));
+  });
+
+  test("the list and export carry the new fields and who invited whom; the list filters by invite code", async () => {
+    const t = await mkTenant();
+    await register(t.slug, "host@example.test", undefined, { name_prefix: "Dr." });
+    const host = await codeOf(t.id, "host@example.test");
+    await register(t.slug, "g1@example.test", undefined, { ref_code: host.member_code });
+    await register(t.slug, "g2@example.test");
+
+    const all = (await rpc(t.claims, "list_registrations")).rows[0].v;
+    expect(all.total).toBe(3);
+    expect(all.rows.find((r: any) => r.email === "g1@example.test")).toMatchObject({ referred_by_code: host.member_code, referred_by_name: "Maria Santos" });
+    expect(all.rows.find((r: any) => r.email === "host@example.test")).toMatchObject({ name_prefix: "Dr.", member_code: host.member_code, referred_by_code: null });
+
+    const mine = (await rpc(t.claims, "list_registrations", [null, null, 1, host.member_code])).rows[0].v;
+    expect(mine.rows.map((r: any) => r.email)).toEqual(["g1@example.test"]);
+    expect(mine.total).toBe(1);
+    expect((await rpc(t.claims, "list_registrations", [null, null, 1, 123456])).rows[0].v.total).toBe(0);
+
+    const byCode = (await rpc(t.claims, "list_registrations", [null, String(host.member_code)])).rows[0].v;
+    expect(byCode.rows.map((r: any) => r.email)).toEqual(["host@example.test"]);
+
+    const exp = (await rpc(t.claims, "export_registrations")).rows[0].v;
+    expect(exp.find((r: any) => r.email === "g1@example.test")).toMatchObject({ referred_by_code: host.member_code, name_prefix: null });
+  });
+
+  test("another tenant's admin cannot use this tenant's invite code", async () => {
+    const a = await mkTenant();
+    const b = await mkTenant();
+    await register(a.slug, "h@example.test");
+    const host = await codeOf(a.id, "h@example.test");
+    await register(a.slug, "g@example.test", undefined, { ref_code: host.member_code });
+    expect((await rpc(b.claims, "list_registrations", [null, null, 1, host.member_code])).rows[0].v.total).toBe(0);
+    expect((await rpc(b.claims, "list_registrations", [a.id, null, 1, host.member_code])).code).toBe("42501");
   });
 });

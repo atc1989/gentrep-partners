@@ -37,7 +37,14 @@ export const confirmMail = (to: string, businessName: string, link: string): Mai
   text: `Hello,\n\nConfirm your email to open the site for ${businessName}:\n\n${link}\n\nThe link works once and expires in 1 hour. If you did not ask for this, ignore this email.\n\nGentrep`,
 });
 
-export const resetMail = (to: string, link: string): Mail => ({
+/** Sent after every registration, including a repeat one, so the page never says whether the address was already known. */
+export const memberMail = (to: string, siteName: string, link: string): Mail => ({
+  to,
+  subject: `Your invite QR for ${siteName}`,
+  text: `Hello,\n\nThanks for registering with ${siteName}. This is your personal page. It has your QR code and your invite link to share:\n\n${link}\n\nKeep this email. Anyone who has this link can open your page, so send people the invite link that is on the page, not this one. If you did not register, ignore this email.\n\n${siteName}\nSent through Gentrep`,
+});
+
+export const resetMail =(to: string, link: string): Mail => ({
   to,
   subject: "Reset your Gentrep password",
   text: `Hello,\n\nUse this link to choose a new password:\n\n${link}\n\nThe link works once and expires in 1 hour. If you did not ask for this, ignore this email.\n\nGentrep`,

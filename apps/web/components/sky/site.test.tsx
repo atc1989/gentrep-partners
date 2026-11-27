@@ -7,6 +7,7 @@ const base: SiteSettings = {
   brand_color: "#7c3aed", logo_path: null, favicon_path: null, hero_image_path: null, hero_headline: null, hero_text: null,
   contact_email: null, contact_phone: null, contact_address: null, facebook_url: null, instagram_url: null, tiktok_url: null, youtube_url: null,
   footer_blurb: null, seo_title: null, seo_description: null, show_features: true, show_join: true, show_faq: false, show_contact: true,
+  reg_category_label: "Category", reg_categories: [], reg_show_address: false, reg_show_source: false,
 };
 const render = (name: string, settings: Partial<SiteSettings> = {}) =>
   renderToStaticMarkup(<SkyRoot brandColor={settings.brand_color ?? base.brand_color}><Landing site={{ name, slug: "demo", settings: { ...base, ...settings } }} /></SkyRoot>);

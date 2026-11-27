@@ -1,5 +1,5 @@
 "use client";
-import { CircleAlert, CircleCheck, CircleX, Eye, EyeOff } from "lucide-react";
+import { ChevronDown, CircleAlert, CircleCheck, CircleX, Eye, EyeOff } from "lucide-react";
 import { useId, useState, type ComponentProps, type ReactNode } from "react";
 
 // Sky form parts: visible label above, hint or error under, 48px inputs, errors say what to do.
@@ -21,6 +21,23 @@ export function SkText({ label, hint, error, value, onChange, ...rest }: { label
   return (
     <SkField label={label} hint={hint} error={error}>
       {(p) => <input className="sk-input" value={value} onChange={(e) => onChange(e.target.value)} {...p} {...rest} />}
+    </SkField>
+  );
+}
+
+/** Native select (best on phones). `empty` adds a first option with value "" (use it for optional fields). */
+export function SkSelect({ label, hint, error, value, onChange, options, empty, ...rest }: { label: string; hint?: ReactNode; error?: string | null; value: string; onChange: (v: string) => void; options: readonly string[]; empty?: string } & Omit<ComponentProps<"select">, "onChange" | "value">) {
+  return (
+    <SkField label={label} hint={hint} error={error}>
+      {(p) => (
+        <div className="sk-select">
+          <select className="sk-input" value={value} onChange={(e) => onChange(e.target.value)} {...p} {...rest}>
+            {empty !== undefined && <option value="">{empty}</option>}
+            {options.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <ChevronDown size={20} aria-hidden />
+        </div>
+      )}
     </SkField>
   );
 }

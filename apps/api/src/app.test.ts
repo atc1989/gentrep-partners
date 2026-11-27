@@ -220,6 +220,114 @@ describe("registration page", () => {
     expect(codes.slice(0, 10).every((c) => c === 200)).toBe(true);
     expect(codes.at(-1)).toBe(429);
   });
+
+  const reg = (slug: string) => `/public/sites/${slug}/registrations`;
+  const person = { full_name: "Maria Santos", email: "maria@example.test", mobile: "0917 123 4567", city: "Davao City", consent: true };
+  const tokenFrom = (mail: { text: string }) => mail.text.match(/\/my-qr#k=([A-Za-z0-9_-]{43})/)![1]!;
+
+  test("registering emails a private link; a repeat sends the same link and the same answer; the card opens only with it", async () => {
+    const t = await signUpTenant("card");
+    const before = outbox.length;
+    const first = await api("POST", reg(t.slug), { body: { ...person, email: "card1@example.test" } });
+    expect(first.status).toBe(200);
+    expect(outbox.length).toBe(before + 1);
+    const mail = outbox.at(-1)!;
+    expect(mail.to).toBe("card1@example.test");
+    expect(mail.text).toContain(`http://${t.slug}.localhost:3000/my-qr#k=`);
+    const token = tokenFrom(mail);
+
+    const card = await api("POST", `/public/sites/${t.slug}/card`, { body: { token } });
+    expect(card.status).toBe(200);
+    expect(card.data).toEqual({ member_code: expect.any(Number), invited: 0 });
+    expect(String(card.data.member_code)).toMatch(/^[1-9][0-9]{5}$/);
+    expect(JSON.stringify(card.data)).not.toContain("maria");
+
+    const again = await api("POST", reg(t.slug), { body: { ...person, email: "CARD1@example.test" } });
+    expect(again.data).toEqual(first.data);
+    expect(tokenFrom(outbox.at(-1)!)).toBe(token);
+
+    const other = await signUpTenant("card-other");
+    expect((await api("POST", `/public/sites/${other.slug}/card`, { body: { token } })).status).toBe(404); // right link, wrong site
+    expect((await api("POST", `/public/sites/${t.slug}/card`, { body: { token: "A".repeat(43) } })).status).toBe(404);
+    expect((await api("POST", `/public/sites/${t.slug}/card`, { body: { token: "short" } })).status).toBe(422);
+    expect((await api("POST", `/public/sites/no-such-site/card`, { body: { token } })).status).toBe(404);
+  });
+
+  test("a trapped bot and a bad registration send no email", async () => {
+    const t = await signUpTenant("nomail");
+    const before = outbox.length;
+    await api("POST", reg(t.slug), { body: { ...person, website: "http://spam" } });
+    await api("POST", reg(t.slug), { body: { ...person, mobile: "12345" } });
+    await api("POST", `/public/sites/no-such-site/registrations`, { body: person });
+    expect(outbox.length).toBe(before);
+  });
+
+  test("a person who joins with an invite code is counted on the inviter's card and in the admin list", async () => {
+    const t = await signUpTenant("invite");
+    await api("POST", reg(t.slug), { body: { ...person, email: "host2@example.test" } });
+    const host = (await api("POST", `/public/sites/${t.slug}/card`, { body: { token: tokenFrom(outbox.at(-1)!) } })).data;
+    const guest = await api("POST", reg(t.slug), { body: { ...person, full_name: "Gina Cruz", email: "gina@example.test", ref_code: String(host.member_code), name_prefix: "Dr." } });
+    expect(guest.status).toBe(200);
+    await api("POST", reg(t.slug), { body: { ...person, email: "nocode@example.test", ref_code: "123456" } }); // unknown code: still registers
+
+    const card = (await api("POST", `/public/sites/${t.slug}/card`, { body: { token: tokenFrom(outbox.findLast((m) => m.to === "host2@example.test")!) } })).data;
+    expect(card.invited).toBe(1);
+
+    const list = (await api("GET", `/admin/registrations?ref=${host.member_code}`, { token: t.token })).data;
+    expect(list.total).toBe(1);
+    expect(list.rows[0]).toMatchObject({ name_prefix: "Dr.", full_name: "Gina Cruz", referred_by_code: host.member_code, referred_by_name: "Maria Santos" });
+    expect((await api("GET", "/admin/registrations?ref=12", { token: t.token })).status).toBe(422);
+    expect((await api("GET", `/admin/registrations?ref=${host.member_code}`, { token: (await signUpTenant("invite-b")).token })).data.total).toBe(0);
+  });
+
+  test("bad titles and malformed invite codes are refused before the database", async () => {
+    const t = await signUpTenant("badform");
+    for (const patch of [{ name_prefix: "Lord" }, { ref_code: "12345" }, { ref_code: "012345" }, { ref_code: "abcdef" }, { category: "x".repeat(61) }, { address: "x".repeat(201) }, { source: "x".repeat(121) }]) {
+      expect((await api("POST", reg(t.slug), { body: { ...person, ...patch } })).status).toBe(422);
+    }
+  });
+
+  test("the tenant's form settings decide what is asked and required", async () => {
+    const t = await signUpTenant("fields");
+    const site = (await api("GET", "/admin/site", { token: t.token })).data.settings;
+    expect(site).toMatchObject({ reg_category_label: "Category", reg_categories: [], reg_show_address: false, reg_show_source: false });
+
+    const edit = (patch: object) => api("PUT", "/admin/site", { token: t.token, body: { ...site, ...patch } });
+    expect((await edit({ reg_categories: Array.from({ length: 21 }, (_, i) => `Option ${i}`) })).status).toBe(422);
+    expect((await edit({ reg_categories: [""] })).status).toBe(422);
+    expect((await edit({ reg_category_label: "" })).status).toBe(422);
+    expect((await edit({ reg_categories: ["Cardiology", "cardiology"] })).status).toBe(400); // the database refuses a repeat
+    expect((await edit({ reg_category_label: "Specialty", reg_categories: ["Cardiology", "Surgery"], reg_show_address: true, reg_show_source: true })).status).toBe(200);
+
+    const pub = (await api("GET", `/public/sites/${t.slug}`)).data.settings;
+    expect(pub).toMatchObject({ reg_category_label: "Specialty", reg_categories: ["Cardiology", "Surgery"], reg_show_address: true, reg_show_source: true });
+
+    const missing = await api("POST", reg(t.slug), { body: person });
+    expect(missing).toMatchObject({ status: 400, data: { error: "Choose one of the listed options." } });
+    const noAddress = await api("POST", reg(t.slug), { body: { ...person, category: "Surgery" } });
+    expect(noAddress).toMatchObject({ status: 400, data: { error: "Enter your address." } });
+    const ok = await api("POST", reg(t.slug), { body: { ...person, category: "Surgery", address: "1 Rizal St, Davao", source: "A friend" } });
+    expect(ok.status).toBe(200);
+    expect((await api("GET", "/admin/registrations", { token: t.token })).data.rows[0]).toMatchObject({ category: "Surgery", address: "1 Rizal St, Davao", source: "A friend" });
+  });
+
+  test("one address gets at most 3 invite emails an hour, and the answer never changes", async () => {
+    const t = await signUpTenant("mailcap");
+    const before = outbox.length;
+    const answers: Awaited<ReturnType<typeof api>>[] = [];
+    for (let i = 0; i < 5; i++) answers.push(await api("POST", reg(t.slug), { body: { ...person, email: "capped@example.test" } }));
+    expect(answers.every((a) => a.status === 200 && JSON.stringify(a.data) === JSON.stringify(answers[0]!.data))).toBe(true);
+    expect(outbox.length - before).toBe(3);
+  });
+
+  test("the card route is limited per visitor", async () => {
+    const t = await signUpTenant("cardlimit");
+    const ip = "10.6.6.6";
+    const codes = [];
+    for (let i = 0; i < 32; i++) codes.push((await api("POST", `/public/sites/${t.slug}/card`, { ip, body: { token: "B".repeat(43) } })).status);
+    expect(codes.slice(0, 30).every((c) => c === 404)).toBe(true);
+    expect(codes.at(-1)).toBe(429);
+  }, 30_000); // 32 sequential calls: slow against a hosted project
 });
 
 describe("tenant admin", () => {
@@ -243,7 +351,7 @@ describe("tenant admin", () => {
     const csv = await api("GET", "/admin/registrations-export", { token: t.token });
     expect(csv.res.headers.get("content-type")).toContain("text/csv");
     expect(csv.res.headers.get("content-disposition")).toContain("attachment");
-    expect(csv.text.startsWith("﻿Name,Email,Mobile,City,Type,Registered (UTC+8)\r\n")).toBe(true);
+    expect(csv.text.startsWith("﻿Title,Name,Email,Mobile,City,Category,Address,Where found,Code,Invited by (code),Type,Registered (UTC+8)\r\n")).toBe(true);
     expect(csv.text).toContain(`"'=HYPERLINK(""http://evil"")"`);
     expect(csv.text).toContain(`'-2+3`);
     expect(csv.text).toContain(`"Normal, Name"`);

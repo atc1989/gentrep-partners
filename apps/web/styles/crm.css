@@ -137,6 +137,13 @@ textarea.cr-input { height: auto; min-height: 88px; padding: 8px 12px; resize: v
 .cr-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted-fg); }
 .cr-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; border: 1px dashed var(--border); border-radius: 12px; color: var(--muted-fg); }
 .cr-muted { color: var(--muted-fg); }
+/* filter chip with its clear button (44px target) */
+.cr-chip { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; max-width: 100%; padding-left: 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--chrome); font-size: 13px; }
+.cr-chip .cr-btn { min-width: 44px; min-height: 44px; border-radius: 999px; }
+/* invite QR block in the side panel */
+.cr-qr { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.cr-qr__img { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; line-height: 0; max-width: 100%; }
+.cr-qr__link { font-size: 13px; overflow-wrap: anywhere; }
 .cr-statusline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--muted-fg); }
 .cr-kv { display: grid; grid-template-columns: 140px 1fr; gap: 8px 16px; margin: 0; }
 .cr-kv dt { color: var(--muted-fg); } .cr-kv dd { margin: 0; overflow-wrap: anywhere; }

@@ -24,7 +24,7 @@ browser -> web (Next) -> API (Elysia) -> Supabase (SQL functions + RLS); browser
 | T1 | Tenant A reads or changes tenant B's data | Tenant from `app.my_tenant()`; RLS on every table; clients have SELECT only; writes in functions that filter by caller | `20261126000001_init.sql`; `db.test.ts` "tenant isolation", "structure" |
 | T2 | A request names another tenant (id swap) | No tenant id accepted from the request except for platform admins, who are checked in SQL | `app.require_tenant`, `list_registrations`; `db.test.ts` |
 | T3 | Body carries `role`, `tenant_id`, `status` | `normalize: false` + `additionalProperties: false`: unknown fields are 422; column grants block them anyway | `apps/api/src/index.ts`, `schema.ts`; `app.test.ts` |
-| T4 | Anyone calls a function they should not | Execute revoked from public/anon/authenticated, granted back per function; anon has exactly 3 | `db.test.ts` "anon can execute exactly three" |
+| T4 | Anyone calls a function they should not | Execute revoked from public/anon/authenticated, granted back per function; anon has exactly 4 (`get_site`, `slug_status`, `register_member`, `get_member_card`) | `db.test.ts` "anon can execute exactly four" |
 | T5 | Super admin reads people without reason | `platform_grant_support`: reason >= 10 chars, 1 hour, logged, shown to the tenant; aal2 required | `db.test.ts`, `app.test.ts` "people stay closed" |
 | T6 | Super admin account taken | Second factor (TOTP) required for every platform function; no sign-up screen; created by a command | `app.require_platform`; `create-super-admin.ts`; MFA tests |
 | T7 | Weak or stolen tenant admin password | 15+ chars; GoTrue rate limits; reset by emailed one-time link; no cookie sharing between addresses | `schema.ts`, `config.toml`; accepted gaps below |
@@ -44,6 +44,11 @@ browser -> web (Next) -> API (Elysia) -> Supabase (SQL functions + RLS); browser
 | T21 | Audit log edited | Append-only triggers incl. TRUNCATE; no write grant | `db.test.ts` "audit log" |
 | T22 | Registrant asks to be removed | Tenant admin deletes one record (logged, no personal data in the log) | `delete_registration` |
 | T23 | A tenant's people exported without trace | `export_registrations` logs the row count with the actor | `db.test.ts`, `app.test.ts` |
+| T24 | Someone opens another person's invite page (guesses or reuses a private link) | The token is HMAC-SHA256(`LINK_SECRET`, email), 256 bits. The table keeps only sha256(token), never granted to a client, never in a list, export or log. `get_member_card` needs tenant and hash, and returns only the code and a count: no name, no email. 30 tries a minute per visitor | `member.ts`, `get_member_card`; `db.test.ts` "member card", "link hash"; `app.test.ts` "private link" |
+| T25 | The form used to flood someone's inbox with invite emails | At most 3 invite emails per address an hour (in memory), 10 registrations a minute per visitor; a failed send never fails the registration | `public.ts`; `app.test.ts` "one address gets at most 3" |
+| T26 | A repeat registration, or an invite email, reveals that an address is known | Every registration sends the same email and gets the same answer. The thank-you screen shows no code and no QR. A repeat keeps its first link and only fills a missing one | `register_member`; `app.test.ts` "a repeat sends the same link"; `db.test.ts` "a repeat registration keeps its first link" |
+| T27 | An invite code used to count a tenant's people or to credit someone in another tenant | Codes are random 6-digit numbers, not a counter, unique per tenant. A code from another tenant, or an unknown one, is ignored without an error. The list filter by code is the tenant's own | `app.pick_member_code`, `register_member`; `db.test.ts` "an invite code credits the inviter, only inside the same tenant" |
+| T28 | Someone calls the database directly and registers a victim's email with a link hash of their own (accepted) | They learn only that row's code and invite count. The real owner's emailed link then does not open the page until the tenant admin deletes the junk row and the owner registers again. No data is exposed | none: accepted, see Known gaps |
 
 ## Known gaps (accepted)
 - Rate limits are in memory per API instance. Fix: Redis before a second instance.
@@ -56,4 +61,6 @@ browser -> web (Next) -> API (Elysia) -> Supabase (SQL functions + RLS); browser
 - Unconfirmed sign-ups leave an unused auth user. Fix: a periodic purge.
 - Terms and privacy text are drafts; fees, retention periods, regions and the operator's details are blank on purpose.
 - Registrant data is kept until deleted: the tenant sets retention.
+- A private invite link stays valid until `LINK_SECRET` changes (T24): there is no per-person revoke. Fix: store a rotation counter per person.
+- The invite email is a plain-text message through Resend (a processor); a person's link is in it. See docs/DEPLOY.md.
 - The browser screens were checked by code review and a production build only, not in a browser (see the hand-over note).

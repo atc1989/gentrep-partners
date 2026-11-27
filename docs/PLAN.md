@@ -32,11 +32,17 @@ Agreed in conversation on 2026-11-26. This is the shared understanding the build
 - Editable: logo, favicon, one brand colour (auto-darkened when white text would be unreadable), hero headline/text/image, contact details, social links, footer blurb, page title and description.
 - Neutral starting copy that is true for any business. "Site by Gentrep" in the footer.
 
+## Registration form and invite QR (added 2026-11-26, modelled on the gutguard.ph partner sign-up)
+- Form: title, name, email, mobile, city, plus three the tenant controls in the site editor: a category dropdown (the tenant writes the label and the list, up to 20 options), address (required when on), "where did you find us" (optional when on).
+- Every registration gets a random 6-digit code and an emailed private link to the person's own QR page (`/my-qr#k=…`): the QR, the invite link `slug.domain/j/<code>`, copy, share, download PNG, print, and how many people joined with their code. No login.
+- Scanning sets a 30-day cookie and opens the form with "Ref number #…"; the new person is recorded as invited by that code (same tenant only). The tenant admin sees Code and Invited by, can filter by a code, and gets the person's QR in the side panel.
+- Not taken from gutguard.ph: shop QR, landing QR, admin-made codes, referral lock, click counts, "someone joined" email, login and dashboard for registrants. Each can be added later without changing this design.
+
 ## Stack
 Next.js 16 + Elysia API in one repo (Bun, TypeScript, Tailwind v4). Supabase: tenant id on every table, RLS, SQL functions for every write. Login per address (host-only cookies). Resend for the two emails (sign-up link, password reset). Trap field and per-visitor limits on public forms. Images in a public-read bucket (2 MB, png/jpeg/webp, generated names, own folder only).
 
 ## Left out on purpose
-Products, orders, payouts, referral codes, registrant logins, SMS, notification emails, custom form fields, extra staff per tenant, self-service site deletion, per-tenant fonts, dark public pages, draft-and-publish, custom domains.
+Products, orders, payouts, registrant logins, SMS, "someone joined" emails, free-form custom form fields, extra staff per tenant, self-service site deletion, per-tenant fonts, dark public pages, draft-and-publish, custom domains.
 
 Also left for the second pass (differs from the first sketch): the quote grid and the partner-logo grid. They have no honest placeholder (invented testimonials mislead people), so they arrive together with the list editors.
 
@@ -44,4 +50,4 @@ Also left for the second pass (differs from the first sketch): the quote grid an
 - Super admin does not see registrations by default (11 - Multi-Tenant Pattern): a reasoned, one-hour, logged grant, visible to the tenant.
 - Tenant creation happens when the emailed link is used (`activate_my_tenant`), not at sign-up, so unconfirmed sign-ups hold no address.
 - Super admin needs a second factor; tenant admins do not (yet). No MFA screens for tenant admins in v1.
-- A fifth public route exists: password-reset request.
+- A fifth public route exists: password-reset request. A sixth: the member card behind a private link.

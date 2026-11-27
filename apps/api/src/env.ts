@@ -29,12 +29,15 @@ export const env = {
   EMAIL_MODE: emailMode,
   RESEND_API_KEY: Bun.env.RESEND_API_KEY ?? "",
   EMAIL_FROM: Bun.env.EMAIL_FROM ?? "",
+  // Signs each person's private invite link. Changing it breaks every link already emailed. Never sent to the browser.
+  LINK_SECRET: Bun.env.LINK_SECRET ?? (appEnv === "local" ? "local-only-link-secret-not-for-real-use" : ""),
   PORT: Number(Bun.env.PORT ?? 4000),
 };
 
 if (appEnv !== "local") {
   if (!env.SUPABASE_SECRET_KEY) throw new Error("Missing SUPABASE_SECRET_KEY");
   if (!env.RESEND_API_KEY || !env.EMAIL_FROM) throw new Error("Missing RESEND_API_KEY or EMAIL_FROM");
+  if (env.LINK_SECRET.length < 32) throw new Error("Missing LINK_SECRET (32 or more characters)");
 }
 
 /** Public origin of a tenant's site, or of the platform site when slug is null. */

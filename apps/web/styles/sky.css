@@ -189,3 +189,35 @@
 .sk-pwd { position: relative; }
 .sk-pwd .sk-input { padding-right: 56px; }
 .sk-pwd button { position: absolute; right: 2px; top: 2px; width: 44px; height: 44px; border: 0; background: transparent; border-radius: 10px; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+
+/* select: native control, our chevron on top */
+.sk-select { position: relative; }
+.sk-select select { appearance: none; -webkit-appearance: none; padding-right: 44px; cursor: pointer; }
+.sk-select svg { position: absolute; right: 14px; top: 14px; pointer-events: none; color: var(--muted); }
+
+/* invite QR page */
+.sk-btn--line { background: transparent; color: var(--ink); border: 1px solid var(--control); }
+.sk-btn--line:hover { background: #ececec; }
+.sky a.sk-btn--line { color: var(--ink); }
+.sk-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.sk-qr { align-self: center; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-field); padding: 8px; max-width: 100%; }
+.sk-ref { font-size: 20px; font-weight: 500; text-align: center; }
+.sk-linktext { font-size: 14px; color: var(--muted); text-align: center; user-select: all; word-break: break-all; }
+.sk-skeleton { height: 240px; width: 240px; max-width: 100%; align-self: center; border-radius: var(--radius-field); background: var(--border); animation: sk-pulse 1.2s ease-in-out infinite; }
+@keyframes sk-pulse { 50% { opacity: 0.5; } }
+@media (prefers-reduced-motion: reduce) { .sk-skeleton { animation: none; } }
+.sk-printonly { display: none; }
+
+/* print: only the QR card (name, QR, ref number, link) */
+@media print {
+  .sky { background: #fff; min-height: 0; }
+  .sky > header, .sky > footer, .sk-draft, .sk-noprint { display: none !important; }
+  .sky .sk-main { padding: 0; }
+  .sky .sk-card { background: #fff; padding: 0; margin: 0 !important; max-width: none; }
+  .sk-qrcard { align-items: center; text-align: center; color: #000; }
+  .sk-qrcard .sk-printonly { display: block; font-size: 24px; }
+  .sk-qrcard .sk-qr { border: 0; padding: 0; }
+  .sk-qrcard .sk-qr svg { width: min(14cm, 100%); height: auto; }
+  .sk-qrcard .sk-ref { font-size: 32px; }
+  .sk-qrcard .sk-linktext { color: #000; font-size: 16px; }
+}

@@ -38,6 +38,7 @@ Environments (playbook: 06 - Deploy): local (Docker Supabase, fake data) -> dev 
 | `ROOT_DOMAIN` | same as `NEXT_PUBLIC_ROOT_DOMAIN` | api (links in emails) |
 | `EMAIL_MODE` | `resend` | api |
 | `RESEND_API_KEY`, `EMAIL_FROM` | from step 2 | api |
+| `LINK_SECRET` | 32+ random characters (`openssl rand -base64 32`), mark **Sensitive**. Signs each person's private invite link; changing it breaks every link already emailed, so set it once per environment and keep it | api |
 | `PORT` | `4000` | api |
 
 Do **not** set `API_ORIGIN` on Vercel (local only). `NEXT_PUBLIC_*` is baked into the build: redeploy after changing one.

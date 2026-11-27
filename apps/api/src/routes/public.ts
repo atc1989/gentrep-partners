@@ -1,14 +1,15 @@
 import { Elysia, status, t } from "elysia";
 import { anon, must, serviceClient } from "../db";
-import { confirmMail, resetMail, sendMail } from "../email";
+import { confirmMail, memberMail, resetMail, sendMail } from "../email";
 import { siteOrigin } from "../env";
 import { allow, clientIp } from "../limits";
-import { Body, EmailField, Maybe, Password, SlugParam, Text } from "../schema";
-import { NOTICE_VERSION, cleanText, isSlug, normalizeMobile, type PublicSite, type SlugCheck } from "../shared";
+import { TOKEN_RE, hashToken, memberToken } from "../member";
+import { Body, EmailField, Maybe, MemberFields, Password, SlugParam, Text } from "../schema";
+import { NOTICE_VERSION, cleanText, isSlug, normalizeMobile, type MemberCard, type PublicSite, type SlugCheck } from "../shared";
 
 // The public routes: no sign-in, so each has its own per-visitor limit. Exactly these and nothing else are open
 // (playbook: 02 - Auth and Roles, "API auth gate"; round-4 decision): site lookup, slug check, tenant sign-up,
-// registration, and password-reset request.
+// registration, the member card behind a private link, and password-reset request.
 
 const OK = { ok: true } as const;
 
@@ -98,6 +99,7 @@ export const publicRoutes = new Elysia({ prefix: "/public" })
   )
 
   // A duplicate email answers exactly like a new one (playbook: round-4 decision), and a trap field stops simple bots.
+  // Every registration, new or repeat, gets the same email with the person's private invite link.
   .post(
     "/sites/:slug/registrations",
     async ({ params, body, headers }) => {
@@ -105,16 +107,33 @@ export const publicRoutes = new Elysia({ prefix: "/public" })
       if (body.website) return OK;
       const mobile = normalizeMobile(body.mobile);
       if (!mobile) throw status(422, { error: "Enter a Philippine mobile number, like 0917 123 4567." });
+      const email = body.email.trim().toLowerCase();
+      const { token, hash } = await memberToken(email);
+      const text = (v: string | null | undefined) => (v ? cleanText(v) : null);
       must(
         await anon.rpc("register_member", {
           p_slug: params.slug,
-          p_full_name: cleanText(body.full_name),
-          p_email: body.email.trim().toLowerCase(),
-          p_mobile: mobile,
-          p_city: cleanText(body.city),
+          p_member: {
+            name_prefix: body.name_prefix ?? null,
+            full_name: cleanText(body.full_name),
+            email,
+            mobile,
+            city: cleanText(body.city),
+            category: text(body.category),
+            address: text(body.address),
+            source: text(body.source),
+            ref_code: body.ref_code ?? null,
+            link_hash: hash,
+          },
           p_notice_version: NOTICE_VERSION,
         }),
       );
+      // The person is registered whether or not the email goes out; a failed send is logged by sendMail, not shown.
+      // At most 3 a day-ish per address (an hour here): this form must not be a way to flood someone's inbox.
+      if (allow(`member-mail:${email}`, 3, 3600)) {
+        const site = (await anon.rpc("get_site", { p_slug: params.slug })).data as PublicSite | null;
+        if (site?.status === "active") await sendMail(memberMail(email, site.name, `${siteOrigin(params.slug)}/my-qr#k=${token}`)).catch(() => {});
+      }
       return OK;
     },
     {
@@ -124,10 +143,23 @@ export const publicRoutes = new Elysia({ prefix: "/public" })
         email: EmailField,
         mobile: Text(30, 5),
         city: Text(80, 2),
+        ...MemberFields,
         consent: t.Literal(true),
         website: t.Optional(t.String({ maxLength: 200 })),
       }),
     },
+  )
+
+  // A person opens their own invite page with the token from their email. The token is never stored: only its hash is.
+  .post(
+    "/sites/:slug/card",
+    async ({ params, body, headers }) => {
+      limit(headers, "card", 30, 60);
+      const card = must<MemberCard | null>(await anon.rpc("get_member_card", { p_slug: params.slug, p_link_hash: await hashToken(body.token) }));
+      if (!card) throw status(404, { error: "This link is not valid." });
+      return card;
+    },
+    { params: t.Object({ slug: SlugParam }), body: Body({ token: t.String({ pattern: TOKEN_RE.source }) }) },
   )
 
   .post(

@@ -8,6 +8,7 @@ import { useLoad } from "@/lib/hooks";
 import { getSupabase } from "@/lib/supabase";
 import { Alert, Button, Check, Field, LoadView, TextArea, TextField } from "../crm";
 import { Landing, SkyRoot } from "../sky/site";
+import { optionsError, optionsToText, parseOptions } from "./reg-options";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const TYPES = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" } as const;
@@ -122,13 +123,15 @@ const SECTIONS = [
   ["show_contact", "Contact details", "Only shows when you have added an email, phone or address."],
 ] as const;
 
-/** Whole-form save: every field is sent. Empty text becomes null. */
+/** Whole-form save: every field is sent. Empty text becomes null, except the category label (always text) and the options (a list). */
 const normalize = (s: SiteSettings): SiteSettings => {
   const out = { ...s, brand_color: s.brand_color.toLowerCase() };
   for (const k of Object.keys(out) as (keyof SiteSettings)[]) {
     const v = out[k];
-    if (typeof v === "string" && k !== "brand_color") (out as Record<string, unknown>)[k] = v.trim() || null;
+    if (typeof v === "string" && k !== "brand_color" && k !== "reg_category_label") (out as Record<string, unknown>)[k] = v.trim() || null;
   }
+  out.reg_category_label = s.reg_category_label.trim();
+  out.reg_categories = s.reg_categories.map((o) => o.trim()).filter(Boolean);
   return out;
 };
 
@@ -136,6 +139,7 @@ function Editor({ data, save }: { data: AdminSite; save: (settings: SiteSettings
   const { tenant } = data;
   const [form, setForm] = useState(data.settings);
   const [hex, setHex] = useState(data.settings.brand_color);
+  const [options, setOptions] = useState(() => optionsToText(data.settings.reg_categories));
   const [baseline, setBaseline] = useState(() => JSON.stringify(data.settings));
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -157,6 +161,9 @@ function Editor({ data, save }: { data: AdminSite; save: (settings: SiteSettings
   if (!HEX_RE.test(hex)) errors.hex = "Enter a colour like #0068d0, with six letters or digits after the #.";
   if (form.contact_email && !(isEmail(form.contact_email.trim()) && !/[?&%/]/.test(form.contact_email))) errors.contact_email = "Enter an email like name@example.com.";
   if (form.contact_phone && !PHONE_RE.test(form.contact_phone.trim())) errors.contact_phone = "Use 5 to 30 digits, spaces, + - or brackets.";
+  if (!form.reg_category_label.trim()) errors.reg_category_label = "Enter a name for the category field, for example Specialty.";
+  const optionsProblem = optionsError(form.reg_categories);
+  if (optionsProblem) errors.reg_categories = optionsProblem;
   for (const [k] of SOCIAL) if (form[k] && !URL_RE.test(form[k].trim())) errors[k] = "Start the link with http:// or https://, for example https://facebook.com/yourpage.";
 
   async function submit(e: FormEvent) {
@@ -225,6 +232,22 @@ function Editor({ data, save }: { data: AdminSite; save: (settings: SiteSettings
           <TextArea label="Footer text" hint={count(form.footer_blurb, LIMIT.footer_blurb)} maxLength={LIMIT.footer_blurb} {...text("footer_blurb")} />
           <TextField label="Page title in search results" hint={count(form.seo_title, LIMIT.seo_title)} maxLength={LIMIT.seo_title} placeholder={tenant.name} {...text("seo_title")} />
           <TextArea label="Page description in search results" hint={count(form.seo_description, LIMIT.seo_description)} maxLength={LIMIT.seo_description} {...text("seo_description")} />
+        </div></section>
+
+        <section className="cr-card" aria-labelledby="ed-reg"><div className="cr-card__body cr-section">
+          <h2 id="ed-reg">Registration form</h2>
+          <TextField label="Category field label" hint="e.g. Specialty, Branch, Team" maxLength={LIMIT.reg_category_label} error={errors.reg_category_label} value={form.reg_category_label} onChange={(v) => set("reg_category_label", v)} />
+          <TextArea
+            label="Category options"
+            hint={`${form.reg_categories.length} of ${LIMIT.reg_categories} options. One option per line. Leave it empty to hide the category field.`}
+            error={errors.reg_categories}
+            rows={6}
+            spellCheck={false}
+            value={options}
+            onChange={(v) => { setOptions(v); set("reg_categories", parseOptions(v)); }}
+          />
+          <Check label="Ask for address (required when on)" checked={form.reg_show_address} onChange={(v) => set("reg_show_address", v)} />
+          <Check label="Ask where they found you (optional when on)" checked={form.reg_show_source} onChange={(v) => set("reg_show_source", v)} />
         </div></section>
 
         <section className="cr-card" aria-labelledby="ed-sections"><div className="cr-card__body cr-section">

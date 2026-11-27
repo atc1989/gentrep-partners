@@ -9,7 +9,7 @@ import { cleanText, csvRow, showMobile, type AdminSite, type AuditRow, type Me, 
 // nothing here takes a tenant id from the request.
 
 const OK = { ok: true } as const;
-const Query = t.Object({ q: t.Optional(Text(100)), page: Page });
+const Query = t.Object({ q: t.Optional(Text(100)), page: Page, ref: t.Optional(t.Numeric({ minimum: 100000, maximum: 999999 })) });
 
 /** Company time (UTC+8), for people reading a spreadsheet. */
 const manila = (iso: string) => new Date(iso).toLocaleString("sv-SE", { timeZone: "Asia/Manila" }).slice(0, 16);
@@ -44,7 +44,8 @@ export const admin = new Elysia({ prefix: "/admin" })
   )
   .get(
     "/registrations",
-    async ({ db, query }) => must<Paged<Registration>>(await db.rpc("list_registrations", { p_tenant: null, p_q: query.q ?? null, p_page: query.page ?? 1 })),
+    async ({ db, query }) =>
+      must<Paged<Registration>>(await db.rpc("list_registrations", { p_tenant: null, p_q: query.q ?? null, p_page: query.page ?? 1, p_ref: query.ref ?? null })),
     { query: Query },
   )
   .delete(
@@ -56,9 +57,11 @@ export const admin = new Elysia({ prefix: "/admin" })
     { params: t.Object({ id: Uuid }) },
   )
   .get("/registrations-export", async ({ db }) => {
-    const rows = must<(Registration & { registered_at: string })[]>(await db.rpc("export_registrations"));
-    const lines = [csvRow(["Name", "Email", "Mobile", "City", "Type", "Registered (UTC+8)"])];
-    for (const r of rows) lines.push(csvRow([r.full_name, r.email, showMobile(r.mobile), r.city, r.member_type, manila(r.registered_at)]));
+    const rows = must<(Omit<Registration, "created_at" | "referred_by_name"> & { registered_at: string })[]>(await db.rpc("export_registrations"));
+    const lines = [csvRow(["Title", "Name", "Email", "Mobile", "City", "Category", "Address", "Where found", "Code", "Invited by (code)", "Type", "Registered (UTC+8)"])];
+    for (const r of rows) {
+      lines.push(csvRow([r.name_prefix, r.full_name, r.email, showMobile(r.mobile), r.city, r.category, r.address, r.source, r.member_code, r.referred_by_code, r.member_type, manila(r.registered_at)]));
+    }
     return new Response(`﻿${lines.join("\r\n")}\r\n`, {
       headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="registrations.csv"', "cache-control": "no-store" },
     });

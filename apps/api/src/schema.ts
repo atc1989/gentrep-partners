@@ -1,5 +1,5 @@
 import { t } from "elysia";
-import { PASSWORD_MAX, PASSWORD_MIN, SITE_LIMITS } from "./shared";
+import { INVITE_CODE_RE, NAME_PREFIXES, PASSWORD_MAX, PASSWORD_MIN, SITE_LIMITS } from "./shared";
 
 // TypeBox building blocks. Every body uses additionalProperties: false, so a client can never smuggle in
 // `role`, `tenant_id` or `status`. (playbook: 01 - Security Baseline, "Input")
@@ -37,7 +37,20 @@ export const SiteBody = Body({
   show_join: t.Boolean(),
   show_faq: t.Boolean(),
   show_contact: t.Boolean(),
+  reg_category_label: Text(SITE_LIMITS.reg_category_label, 1),
+  reg_categories: t.Array(Text(SITE_LIMITS.reg_category, 1), { maxItems: SITE_LIMITS.reg_categories }),
+  reg_show_address: t.Boolean(),
+  reg_show_source: t.Boolean(),
 });
+
+/** What the registration form may send besides the four old fields. All optional; null and absent mean the same. */
+export const MemberFields = {
+  name_prefix: t.Optional(Maybe(t.String({ pattern: `^(${NAME_PREFIXES.map((p) => p.replace(".", "\\.")).join("|")})$` }))),
+  category: t.Optional(Maybe(Text(SITE_LIMITS.reg_category))),
+  address: t.Optional(Maybe(Text(SITE_LIMITS.address))),
+  source: t.Optional(Maybe(Text(SITE_LIMITS.source))),
+  ref_code: t.Optional(Maybe(t.String({ pattern: INVITE_CODE_RE.source }))),
+};
 
 export const Password = t.String({ minLength: PASSWORD_MIN, maxLength: PASSWORD_MAX });
 export const EmailField = t.String({ maxLength: 254, pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" });
